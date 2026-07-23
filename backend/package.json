@@ -1,0 +1,22 @@
+{
+  "name": "chat-with-website-backend",
+  "version": "1.0.0",
+  "description": "Crawl a site, index it, answer questions with cited sources.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "robots-parser": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
