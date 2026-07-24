@@ -1,6 +1,14 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import remarkGfm from "remark-gfm";
+
+import "highlight.js/styles/github-dark.css";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+
 
 function newId() {
   return Math.random().toString(36).slice(2);
@@ -76,12 +84,25 @@ export default function Home() {
     appendLog(`respecting robots.txt, max ${maxPages} pages, depth ${maxDepth}...`);
 
     try {
-      const res = await fetch('/api/crawl', {
+      const res = await fetch(`${API_URL}/api/crawl`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim(), maxPages, maxDepth }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: url.trim(),
+          maxPages: Number(maxPages),
+          maxDepth: Number(maxDepth),
+        }),
       });
-      const data = await res.json();
+
+      console.log("Status:", res.status);
+
+      const text = await res.text();
+
+      console.log("Raw Response:", text);
+
+      const data = JSON.parse(text);
 
       if (!res.ok) {
         setCrawlError(data.error || 'Crawl failed');
@@ -115,7 +136,7 @@ export default function Home() {
     setSending(true);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ siteId: site.siteId, message: question, history }),
@@ -264,8 +285,13 @@ export default function Home() {
           {messages.map((m) => (
             <div key={m.id} className={`msg ${m.role}`}>
               <span className="msg-role">{m.role}</span>
-              <div className="msg-bubble">
-                {m.content || (m.role === 'assistant' ? ' ' : '')}
+              <div className="msg-bubble markdown-body">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                >
+                  {m.content}
+                </ReactMarkdown>
                 {m.role === 'assistant' && sending && m === messages[messages.length - 1] && (
                   <span className="cursor-blink" />
                 )}
