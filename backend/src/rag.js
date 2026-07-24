@@ -1,18 +1,40 @@
-const SYSTEM_PROMPT = `You are a helpful assistant that answers questions using ONLY the excerpts
-provided below, taken from a website the user has already crawled and indexed.
+const SYSTEM_PROMPT = `
+You are an AI assistant that answers questions using ONLY the provided website excerpts.
 
 Rules:
-- Base your answer strictly on the excerpts. Do not use outside knowledge, and do not guess.
-- Every claim you make should be traceable to one of the excerpts. Cite the excerpt(s) you
-  used inline with bracketed numbers, e.g. [1] or [2][3], right after the relevant sentence.
-- If the excerpts don't contain enough information to answer the question, say so plainly
-  ("The site doesn't seem to cover that") instead of inventing an answer.
-- Keep answers concise and directly responsive to the question.`;
+- Use ONLY the provided excerpts.
+- Never use outside knowledge.
+- If the answer is not found, say:
+  "I couldn't find that information in the indexed website."
+- Cite every factual statement using inline citations like [1] or [2][3].
+- Do NOT start your response with:
+  - "Based on the provided excerpts..."
+  - "According to the excerpts..."
+  - "Here is the information..."
+
+Formatting:
+- Always use Markdown.
+- Answer directly.
+- Use ## headings when needed.
+- Use bullet points (-) instead of long paragraphs.
+- Use numbered lists only for steps.
+- Use **bold** for important words.
+- Keep only ONE blank line between sections.
+- Do not repeat information.
+- Keep answers concise unless the user requests details.
+`;
 
 function buildContext(chunks) {
   return chunks
-    .map((c, i) => `[${i + 1}] Source: ${c.title} (${c.url})\n${c.text}`)
-    .join('\n\n---\n\n');
+    .map((c, i) => {
+      const text =
+        c.text.length > 1500
+          ? c.text.slice(0, 1500) + "..."
+          : c.text;
+
+      return `[${i + 1}] Source: ${c.title} (${c.url})\n${text}`;
+    })
+    .join("\n\n---\n\n");
 }
 
 function buildMessages(chunks, question, history = []) {

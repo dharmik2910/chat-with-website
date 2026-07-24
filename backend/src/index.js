@@ -9,24 +9,22 @@ const store = require('./store');
 const { buildMessages, sourcesFrom } = require('./rag');
 
 const app = express();
-app.use(cors());
+
+app.use(cors({
+  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+}));
 app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 8080;
 
-// Kicks off a crawl of the given site, chunks and embeds everything it finds,
-// and stores it under a siteId derived from the hostname. This is synchronous
-// from the client's point of view - for the page limits we default to
-// (~25 pages) it usually finishes in well under a minute, which felt like a
-// reasonable tradeoff over building out a job queue for a take-home.
-// Helper: runs a promise with a timeout so a slow API call doesn't leave
-// the client hanging on a socket timeout. The caller still gets the error
-// back, it just won't wait forever for it.
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`${label || 'request'} timed out after ${ms}ms`)), ms)
+      setTimeout(
+        () => reject(new Error(`${label || 'request'} timed out after ${ms}ms`)),
+        ms
+      )
     ),
   ]);
 }
@@ -35,39 +33,61 @@ app.post('/api/crawl', async (req, res) => {
   const { url, maxPages, maxDepth } = req.body || {};
 
   if (!url) {
-    return res.status(400).json({ error: 'url is required' });
+    return res.status(400).json({
+      error: 'url is required',
+    });
   }
 
   let hostname;
+
   try {
     hostname = new URL(url).hostname;
-  } catch (err) {
-    return res.status(400).json({ error: 'not a valid URL' });
+  } catch {
+    return res.status(400).json({
+      error: 'not a valid URL',
+    });
   }
 
   try {
+    console.log('\n========== NEW CRAWL ==========');
+    console.log('URL:', url);
+
+    console.log('1. Starting crawl...');
+
     const pages = await withTimeout(
       crawlSite(url, {
-        maxPages: maxPages ? Number(maxPages) : Number(process.env.MAX_PAGES) || 25,
-        maxDepth: maxDepth ? Number(maxDepth) : Number(process.env.MAX_DEPTH) || 3,
+        maxPages:
+          maxPages ? Number(maxPages) : Number(process.env.MAX_PAGES) || 25,
+        maxDepth:
+          maxDepth ? Number(maxDepth) : Number(process.env.MAX_DEPTH) || 3,
         crawlDelayMs: Number(process.env.CRAWL_DELAY_MS) || 400,
       }),
-      120000, // 2 minutes for the crawl itself
+      120000,
       'crawl'
     );
 
+    console.log('2. Pages crawled:', pages.length);
+
     if (pages.length === 0) {
       return res.status(422).json({
-        error: 'Could not find any readable pages on that site (check the URL, or robots.txt may be blocking everything).',
+        error:
+          'Could not find any readable pages on that site (check the URL or robots.txt may be blocking everything).',
       });
     }
 
     const chunks = chunkPages(pages);
+
+    console.log('3. Chunks created:', chunks.length);
+
+    console.log('4. Creating embeddings...');
+
     const embeddings = await withTimeout(
       embedTexts(chunks.map((c) => c.text)),
-      60000, // 1 minute for embedding generation
+      60000,
       'embedding'
     );
+
+    console.log('5. Embeddings created:', embeddings.length);
 
     const chunksWithEmbeddings = chunks.map((chunk, i) => ({
       ...chunk,
@@ -75,12 +95,18 @@ app.post('/api/crawl', async (req, res) => {
     }));
 
     const siteId = store.siteIdFor(hostname);
+
+    console.log('6. Saving site...');
+
     store.saveSite(siteId, {
       hostname,
       startUrl: url,
       crawledAt: new Date().toISOString(),
       chunks: chunksWithEmbeddings,
     });
+
+    console.log('7. Finished successfully');
+    console.log('===============================\n');
 
     res.json({
       siteId,
@@ -89,28 +115,41 @@ app.post('/api/crawl', async (req, res) => {
       chunkCount: chunks.length,
     });
   } catch (err) {
-    console.error('crawl failed:', err.message);
-    res.status(500).json({ error: err.message || 'crawl failed' });
+    console.error('\n========== CRAWL ERROR ==========');
+    console.error(err);
+    console.error(err.stack);
+    console.error('=================================\n');
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: err.message,
+        stack: err.stack,
+      });
+    }
   }
 });
 
-// Streams the answer back over Server-Sent Events so the UI can render tokens
-// as they arrive instead of waiting for the full response.
 app.post('/api/chat', async (req, res) => {
   const { siteId, message, history } = req.body || {};
 
   if (!siteId || !message) {
-    return res.status(400).json({ error: 'siteId and message are required' });
+    return res.status(400).json({
+      error: 'siteId and message are required',
+    });
   }
 
   const site = store.loadSite(siteId);
+
   if (!site) {
-    return res.status(404).json({ error: 'Unknown site - crawl it first' });
+    return res.status(404).json({
+      error: 'Unknown site - crawl it first',
+    });
   }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+
   res.flushHeaders();
 
   const send = (event, data) => {
@@ -119,10 +158,16 @@ app.post('/api/chat', async (req, res) => {
 
   try {
     const queryEmbedding = await embedQuery(message);
-    const topChunks = store.search(siteId, queryEmbedding, 5);
+
+    const topChunks = store.search(siteId, queryEmbedding, 8);
+
     const sources = sourcesFrom(topChunks);
 
-    const messages = buildMessages(topChunks, message, history || []);
+    const messages = buildMessages(
+      topChunks,
+      message,
+      history || []
+    );
 
     await streamChat(messages, (token) => {
       send('token', { token });
@@ -131,15 +176,25 @@ app.post('/api/chat', async (req, res) => {
     send('sources', { sources });
     send('done', {});
   } catch (err) {
-    console.error('chat failed:', err.message);
-    send('error', { error: err.message || 'chat failed' });
+    console.error('\n========== CHAT ERROR ==========');
+    console.error(err);
+    console.error(err.stack);
+    console.error('================================\n');
+
+    send('error', {
+      error: err.message || 'chat failed',
+    });
   } finally {
     res.end();
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
-
-app.listen(PORT, () => {
-  console.log(`backend listening on http://localhost:${PORT}`);
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+  });
 });
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`Listening on ${PORT}`
+));
