@@ -49,11 +49,6 @@ app.post('/api/crawl', async (req, res) => {
   }
 
   try {
-    console.log('\n========== NEW CRAWL ==========');
-    console.log('URL:', url);
-
-    console.log('1. Starting crawl...');
-
     const pages = await withTimeout(
       crawlSite(url, {
         maxPages:
@@ -66,8 +61,6 @@ app.post('/api/crawl', async (req, res) => {
       'crawl'
     );
 
-    console.log('2. Pages crawled:', pages.length);
-
     if (pages.length === 0) {
       return res.status(422).json({
         error:
@@ -77,17 +70,11 @@ app.post('/api/crawl', async (req, res) => {
 
     const chunks = chunkPages(pages);
 
-    console.log('3. Chunks created:', chunks.length);
-
-    console.log('4. Creating embeddings...');
-
     const embeddings = await withTimeout(
       embedTexts(chunks.map((c) => c.text)),
       60000,
       'embedding'
     );
-
-    console.log('5. Embeddings created:', embeddings.length);
 
     const chunksWithEmbeddings = chunks.map((chunk, i) => ({
       ...chunk,
@@ -96,17 +83,12 @@ app.post('/api/crawl', async (req, res) => {
 
     const siteId = store.siteIdFor(hostname);
 
-    console.log('6. Saving site...');
-
     store.saveSite(siteId, {
       hostname,
       startUrl: url,
       crawledAt: new Date().toISOString(),
       chunks: chunksWithEmbeddings,
     });
-
-    console.log('7. Finished successfully');
-    console.log('===============================\n');
 
     res.json({
       siteId,
@@ -115,11 +97,6 @@ app.post('/api/crawl', async (req, res) => {
       chunkCount: chunks.length,
     });
   } catch (err) {
-    console.error('\n========== CRAWL ERROR ==========');
-    console.error(err);
-    console.error(err.stack);
-    console.error('=================================\n');
-
     if (!res.headersSent) {
       res.status(500).json({
         error: err.message,
@@ -176,11 +153,6 @@ app.post('/api/chat', async (req, res) => {
     send('sources', { sources });
     send('done', {});
   } catch (err) {
-    console.error('\n========== CHAT ERROR ==========');
-    console.error(err);
-    console.error(err.stack);
-    console.error('================================\n');
-
     send('error', {
       error: err.message || 'chat failed',
     });
@@ -195,6 +167,4 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Listening on ${PORT}`
-));
+app.listen(PORT, () => console.log(`Listening on ${PORT}`));
