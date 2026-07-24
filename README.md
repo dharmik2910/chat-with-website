@@ -6,7 +6,6 @@ Every answer is grounded in the crawled pages and cites which page(s) it
 came from.
 
 **Live demo:** https://chat-with-website-production-ae43.up.railway.app
-**Backend API:** https://chat-with-website-6pgt.onrender.com
 
 ## Running it locally
 
